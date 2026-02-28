@@ -12,6 +12,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 )
@@ -92,7 +94,11 @@ func NewGame(prefs fyne.Preferences) *Game {
 	g.msgText.TextStyle = fyne.TextStyle{Bold: true}
 	g.msgText.Alignment = fyne.TextAlignCenter
 
-	g.subText = canvas.NewText("SPACE / tap to play", color.RGBA{R: 255, G: 240, B: 80, A: 255})
+	txt := "hit space/enter to play"
+	if fyne.CurrentDevice().IsMobile() {
+		txt = "tap to play"
+	}
+	g.subText = canvas.NewText(txt, color.RGBA{R: 255, G: 240, B: 80, A: 255})
 	g.subText.TextSize = 18
 	g.subText.Alignment = fyne.TextAlignCenter
 
@@ -448,11 +454,14 @@ func (t *tapWidget) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(canvas.NewRectangle(color.Transparent))
 }
 
-func (t *tapWidget) Tapped(*fyne.PointEvent) {
+func (t *tapWidget) TouchDown(*mobile.TouchEvent) {
 	if t.onTap != nil {
 		t.onTap()
 	}
 }
+
+func (t *tapWidget) TouchUp(*mobile.TouchEvent) {}
+func (t *tapWidget) TouchCancel(*mobile.TouchEvent) {}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -474,13 +483,15 @@ func main() {
 	w.SetContent(content)
 	w.Resize(fyne.NewSize(gameW, gameH))
 
-	// Keyboard: Space / Enter / Up arrow all flap.
-	w.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
-		switch ev.Name {
-		case fyne.KeySpace, fyne.KeyReturn, fyne.KeyUp:
-			g.flap()
-		}
-	})
+	if desk, ok := w.Canvas().(desktop.Canvas); ok {
+		// Keyboard: Space / Enter / Up arrow all flap.
+		desk.SetOnKeyDown(func(ev *fyne.KeyEvent) {
+			switch ev.Name {
+			case fyne.KeySpace, fyne.KeyReturn, fyne.KeyUp:
+				g.flap()
+			}
+		})
+	}
 
 	// Game loop at ~60 fps.
 	go func() {
@@ -496,7 +507,12 @@ func main() {
 			switch state {
 			case StateStart:
 				g.msgText.Text = "FLAPPY GOPHER"
-				g.subText.Text = "SPACE / tap to play"
+	if fyne.CurrentDevice().IsMobile() {
+		g.subText.Text = "tap to play"
+	} else {
+		g.subText.Text = "hit space/enter to play"
+	}
+	
 				g.msgText.Show()
 				g.subText.Show()
 				g.scoreText.Hide()
