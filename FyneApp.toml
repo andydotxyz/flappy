@@ -1,8 +1,8 @@
 [Details]
-Name = "flappy"
-ID = "flappy"
+Name = "Flappy Gopher"
+ID = "xyz.andy.flappy"
 Version = "0.0.0"
-Build = 0
+Build = 4
 
 [Migrations]
 fyneDo = true
