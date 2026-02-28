@@ -190,6 +190,7 @@ func pipeCollides(birdY float64, p Pipe) bool {
 
 func (g *Game) drawFrame(w, h int) image.Image {
 	g.mu.Lock()
+	state := g.state
 	by := g.birdY
 	bvy := g.birdVY
 	ft := g.flapTimer
@@ -231,11 +232,19 @@ func (g *Game) drawFrame(w, h int) image.Image {
 		drawPipe(img, p, sx, sy, gndY, w, h)
 	}
 
-	// Bird.
-	bx := int(birdX * sx)
-	byPx := int(by * sy)
-	br := max(int(birdRadius*math.Min(sx, sy)), 8)
-	drawBird(img, bx, byPx, br, bvy, ft, w, h)
+	// Bird / logo.
+	if state == StateStart {
+		// Draw a larger, centred gopher as the title screen logo.
+		lx := w / 2
+		ly := int(float64(h) * 0.30)
+		lr := max(int(38*math.Min(sx, sy)), 12)
+		drawBird(img, lx, ly, lr, 0, 0, w, h)
+	} else {
+		bx := int(birdX * sx)
+		byPx := int(by * sy)
+		br := max(int(birdRadius*math.Min(sx, sy)), 8)
+		drawBird(img, bx, byPx, br, bvy, ft, w, h)
+	}
 
 	return img
 }
