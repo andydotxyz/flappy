@@ -202,30 +202,25 @@ func (g *Game) drawFrame(w, h int) image.Image {
 	sx, sy := float64(w)/gameW, float64(h)/gameH
 	gndY := int((gameH - groundH) * sy)
 
-	// Sky gradient (light→darker blue going down).
+	// Sky gradient: light-blue top → clear blue → deeper horizon blue.
 	for y := 0; y < gndY; y++ {
 		t := float64(y) / float64(gndY)
-		r, gg, b := clamp8(lerp(135, 80, t)), clamp8(lerp(206, 160, t)), clamp8(lerp(235, 210, t))
+		var r, gg, b uint8
+		if t < 0.15 {
+			u := t / 0.15 // 0→1 over the top 15%
+			r, gg, b = clamp8(lerp(185, 135, u)), clamp8(lerp(225, 206, u)), clamp8(lerp(250, 235, u))
+		} else {
+			u := (t - 0.15) / 0.85 // 0→1 over the lower 85%
+			r, gg, b = clamp8(lerp(135, 80, u)), clamp8(lerp(206, 160, u)), clamp8(lerp(235, 210, u))
+		}
 		off := y * img.Stride
 		for x := 0; x < w; x++ {
 			img.Pix[off+x*4], img.Pix[off+x*4+1], img.Pix[off+x*4+2], img.Pix[off+x*4+3] = r, gg, b, 255
 		}
 	}
 
-	// Ground (grass strip + dirt).
-	grassH := max(int(6*sy), 3)
-	for y := gndY; y < h; y++ {
-		var r, gg, b uint8
-		if y < gndY+grassH {
-			r, gg, b = 88, 155, 60
-		} else {
-			r, gg, b = 210, 180, 120
-		}
-		off := y * img.Stride
-		for x := 0; x < w; x++ {
-			img.Pix[off+x*4], img.Pix[off+x*4+1], img.Pix[off+x*4+2], img.Pix[off+x*4+3] = r, gg, b, 255
-		}
-	}
+	// Ground (rocky texture).
+	drawGround(img, gndY, w, h)
 
 	// Pipes.
 	for _, p := range pipes {
@@ -252,6 +247,48 @@ func (g *Game) drawFrame(w, h int) image.Image {
 func lerp(a, b uint8, t float64) float64 { return float64(a)*(1-t) + float64(b)*t }
 func clamp8(v float64) uint8              { return uint8(v) }
 
+// groundHash returns a deterministic value in [-32, 31] for a given (x, y).
+func groundHash(x, y int) int {
+	h := uint32(x)*2654435761 ^ uint32(y)*2246822519
+	h ^= h >> 15
+	h *= 2246822519
+	h ^= h >> 13
+	return int(h&0x3F) - 32
+}
+
+// drawGround renders a rocky ledge with horizontal strata, per-pixel grain,
+// a dark shadow lip at the top, and sparse crack pixels.
+func drawGround(img *image.NRGBA, gndY, w, h int) {
+	for y := gndY; y < h; y++ {
+		off := y * img.Stride
+		dy := y - gndY
+		// Strata: a single band offset shared across all x in a 10-px-tall row.
+		band := groundHash(0, (y/10)*10) / 2 // [-16, 15]
+		for x := 0; x < w; x++ {
+			var rv, gv, bv uint8
+			if dy < 4 {
+				// Dark overhang shadow.
+				shade := uint8(50 + dy*8)
+				rv, gv, bv = shade, shade-5, shade-10
+			} else {
+				grain := groundHash(x, y) >> 2 // [-8, 7] per-pixel noise
+				v := band + grain              // [-24, 22]
+				rv = uint8(145 + v)
+				gv = uint8(133 + v)
+				bv = uint8(118 + v)
+				// Sparse dark crack pixels (~1 in 128).
+				if groundHash(x+37, y+13)&0x7F == 0 {
+					rv, gv, bv = 72, 64, 56
+				}
+			}
+			img.Pix[off+x*4] = rv
+			img.Pix[off+x*4+1] = gv
+			img.Pix[off+x*4+2] = bv
+			img.Pix[off+x*4+3] = 255
+		}
+	}
+}
+
 func drawPipe(img *image.NRGBA, p Pipe, sx, sy float64, gndY, W, H int) {
 	x1 := int(p.x * sx)
 	x2 := int((p.x + pipeW) * sx)
@@ -270,6 +307,25 @@ func drawPipe(img *image.NRGBA, p Pipe, sx, sy float64, gndY, W, H int) {
 	drawRect(img, cx1, topB-capH, cx2, topB, cap1, cape, W, H)
 	drawRect(img, x1, botT+capH, x2, gndY, fill, edge, W, H)
 	drawRect(img, cx1, botT, cx2, botT+capH, cap1, cape, W, H)
+
+	// Shine – a narrow bright strip near the left of each section to fake a
+	// cylindrical highlight. Two strips: a bright leading edge then a softer mid.
+	sw := max(int(3*sx), 2)
+	shx := x1 + max(int(3*sx), 2)  // just inside the left dark edge
+	shcx := cx1 + max(int(3*sx), 2)
+	hi1 := color.NRGBA{R: 165, G: 235, B: 135, A: 255}
+	hi2 := color.NRGBA{R: 120, G: 215, B: 100, A: 255}
+
+	// Shaft shine
+	drawRect(img, shx, 0, shx+sw, topB-capH, hi1, hi1, W, H)
+	drawRect(img, shx+sw, 0, shx+sw*3, topB-capH, hi2, hi2, W, H)
+	drawRect(img, shx, botT+capH, shx+sw, gndY, hi1, hi1, W, H)
+	drawRect(img, shx+sw, botT+capH, shx+sw*3, gndY, hi2, hi2, W, H)
+	// Cap shine
+	drawRect(img, shcx, topB-capH, shcx+sw, topB, hi1, hi1, W, H)
+	drawRect(img, shcx+sw, topB-capH, shcx+sw*3, topB, hi2, hi2, W, H)
+	drawRect(img, shcx, botT, shcx+sw, botT+capH, hi1, hi1, W, H)
+	drawRect(img, shcx+sw, botT, shcx+sw*3, botT+capH, hi2, hi2, W, H)
 }
 
 func drawRect(img *image.NRGBA, x1, y1, x2, y2 int, fill, edge color.NRGBA, W, H int) {
