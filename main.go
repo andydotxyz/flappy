@@ -55,15 +55,16 @@ type Pipe struct {
 // ── Game ──────────────────────────────────────────────────────────────────────
 
 type Game struct {
-	mu      sync.Mutex
-	state   State
-	birdY   float64
-	birdVY  float64
-	pipes   []Pipe
-	score   int
-	hiScore int
-	frame   int
-	prefs   fyne.Preferences
+	mu        sync.Mutex
+	state     State
+	birdY     float64
+	birdVY    float64
+	pipes     []Pipe
+	score     int
+	hiScore   int
+	frame     int
+	flapTimer int
+	prefs     fyne.Preferences
 
 	raster    *canvas.Raster
 	scoreText *canvas.Text
@@ -106,8 +107,10 @@ func (g *Game) flap() {
 	case StateStart:
 		g.state = StatePlaying
 		g.birdVY = flapForce
+		g.flapTimer = 20
 	case StatePlaying:
 		g.birdVY = flapForce
+		g.flapTimer = 20
 	case StateOver:
 		if g.score > g.hiScore {
 			g.hiScore = g.score
@@ -118,6 +121,7 @@ func (g *Game) flap() {
 		g.pipes = nil
 		g.score = 0
 		g.frame = 0
+		g.flapTimer = 0
 		g.state = StateStart
 	}
 }
@@ -131,6 +135,9 @@ func (g *Game) update() {
 	}
 
 	g.frame++
+	if g.flapTimer > 0 {
+		g.flapTimer--
+	}
 	g.birdVY += gravity
 	g.birdY += g.birdVY
 
@@ -185,6 +192,7 @@ func (g *Game) drawFrame(w, h int) image.Image {
 	g.mu.Lock()
 	by := g.birdY
 	bvy := g.birdVY
+	ft := g.flapTimer
 	pipes := make([]Pipe, len(g.pipes))
 	copy(pipes, g.pipes)
 	g.mu.Unlock()
@@ -227,7 +235,7 @@ func (g *Game) drawFrame(w, h int) image.Image {
 	bx := int(birdX * sx)
 	byPx := int(by * sy)
 	br := max(int(birdRadius*math.Min(sx, sy)), 8)
-	drawBird(img, bx, byPx, br, bvy, w, h)
+	drawBird(img, bx, byPx, br, bvy, ft, w, h)
 
 	return img
 }
@@ -273,23 +281,75 @@ func drawRect(img *image.NRGBA, x1, y1, x2, y2 int, fill, edge color.NRGBA, W, H
 	}
 }
 
-func drawBird(img *image.NRGBA, cx, cy, r int, vy float64, W, H int) {
-	// Wing (drawn first so body overlaps it).
-	drawCircle(img, cx-r/3, cy+r/4, r*2/3, color.NRGBA{R: 255, G: 175, B: 0, A: 255}, W, H)
-	// Body.
-	drawCircle(img, cx, cy, r, color.NRGBA{R: 255, G: 220, B: 10, A: 255}, W, H)
-	// Eye: position shifts up slightly when flapping.
-	ey := cy - r/4
-	if vy < -2 {
-		ey -= r / 5
+func drawBird(img *image.NRGBA, cx, cy, r int, _ float64, flapTimer int, W, H int) {
+	body  := color.NRGBA{R: 99,  G: 136, B: 168, A: 255} // classic Go gopher blue-grey
+	snoutC := color.NRGBA{R: 185, G: 210, B: 220, A: 255} // lighter snout
+	pawC  := color.NRGBA{R: 72,  G: 105, B: 132, A: 255} // slightly darker for paws
+	white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	dark  := color.NRGBA{R: 15,  G: 15,  B: 15,  A: 255}
+
+	flapping := flapTimer > 0
+
+	// Front paw – rises when flapping.
+	fpx := cx + r/3
+	fpy := cy + r*3/4
+	if flapping {
+		fpy = cy - r*3/4
 	}
-	drawCircle(img, cx+r/3, ey, r/3, color.NRGBA{R: 255, G: 255, B: 255, A: 255}, W, H)
-	drawCircle(img, cx+r/3+r/8, ey, r/5, color.NRGBA{R: 20, G: 20, B: 20, A: 255}, W, H)
-	drawCircle(img, cx+r/3+r/8-1, ey-r/6, max(r/8, 1), color.NRGBA{R: 255, G: 255, B: 255, A: 255}, W, H)
-	// Beak.
-	drawRect(img, cx+r-2, cy-r/5, cx+r+r/2, cy+r/5+1,
-		color.NRGBA{R: 255, G: 140, B: 0, A: 255},
-		color.NRGBA{R: 200, G: 100, B: 0, A: 255}, W, H)
+	drawPaw(img, fpx, fpy, r/3, pawC, flapping, W, H)
+
+	// Body.
+	drawCircle(img, cx, cy, r, body, W, H)
+
+	// Back paw – rises when flapping.
+	bpx := cx - r*2/3
+	bpy := cy + r*3/5
+	if flapping {
+		bpy = cy - r*3/5
+	}
+	drawPaw(img, bpx, bpy, r/3, pawC, flapping, W, H)
+
+
+	// Snout (right-forward).
+	snoutX := cx + r*3/5
+	snoutY := cy + r/6
+	snoutR := r * 2 / 5
+	drawCircle(img, snoutX, snoutY, snoutR, snoutC, W, H)
+
+	// Nose.
+	drawCircle(img, snoutX+snoutR/3, snoutY-snoutR/3, max(r/7, 2), dark, W, H)
+
+	// Teeth – two white rectangles below snout.
+	tw := r / 5
+	toothTop := snoutY + snoutR/2
+	toothBot := toothTop + r*2/5
+	drawRect(img, snoutX-tw-1, toothTop, snoutX-1, toothBot, white, white, W, H)
+	drawRect(img, snoutX+1, toothTop, snoutX+tw+1, toothBot, white, white, W, H)
+
+	// Eye (large white circle with pupil and shine).
+	// Pupil shifts upward when flapping.
+	eyeX := cx + r/4
+	eyeY := cy - r/4
+	pupilDY := 0
+	if flapping {
+		pupilDY = -3
+	}
+	drawCircle(img, eyeX, eyeY, r/3, white, W, H)
+	drawCircle(img, eyeX+r/8, eyeY+pupilDY/2, r/5, dark, W, H)
+	drawCircle(img, eyeX+r/8+3+pupilDY, eyeY+pupilDY, max(r/8, 1), white, W, H)
+}
+
+// drawPaw draws a small paw with three finger-nubs pointing up (flapping) or down (resting).
+func drawPaw(img *image.NRGBA, cx, cy, r int, c color.NRGBA, flapping bool, W, H int) {
+	drawCircle(img, cx, cy, r, c, W, H)
+	fr := max(r/3, 2)
+	dir := 1 // nubs point down when resting
+	if flapping {
+		dir = -1 // nubs point up when flapping
+	}
+	drawCircle(img, cx-r/2, cy+dir*(r-fr/2), fr, c, W, H)
+	drawCircle(img, cx, cy+dir*r, fr, c, W, H)
+	drawCircle(img, cx+r/2, cy+dir*(r-fr/2), fr, c, W, H)
 }
 
 func drawCircle(img *image.NRGBA, cx, cy, r int, c color.NRGBA, W, H int) {
