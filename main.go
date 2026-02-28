@@ -394,6 +394,7 @@ func (t *tapWidget) Tapped(*fyne.PointEvent) {
 func main() {
 	a := app.NewWithID("xyz.andy.flappy-gopher")
 	w := a.NewWindow("Flappy Gopher")
+	w.SetPadded(false)
 
 	g := NewGame(a.Preferences())
 
@@ -407,7 +408,6 @@ func main() {
 
 	w.SetContent(content)
 	w.Resize(fyne.NewSize(gameW, gameH))
-	w.SetFixedSize(true)
 
 	// Keyboard: Space / Enter / Up arrow all flap.
 	w.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
