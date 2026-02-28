@@ -117,12 +117,12 @@ func (g *Game) flap() {
 			g.prefs.SetInt("hiScore", g.hiScore)
 		}
 		g.birdY = gameH / 2
-		g.birdVY = 0
+		g.birdVY = flapForce
 		g.pipes = nil
 		g.score = 0
 		g.frame = 0
-		g.flapTimer = 0
-		g.state = StateStart
+		g.flapTimer = 20
+		g.state = StatePlaying
 	}
 }
 
