@@ -15,6 +15,7 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -73,6 +74,10 @@ type Game struct {
 	scoreText *canvas.Text
 	msgText   *canvas.Text
 	subText   *canvas.Text
+
+	cloudCircles [numClouds * puffsPerCloud]*canvas.Circle
+	groundBar    *canvas.Rectangle
+	overlay      *fyne.Container
 }
 
 func NewGame(prefs fyne.Preferences) *Game {
@@ -102,6 +107,20 @@ func NewGame(prefs fyne.Preferences) *Game {
 	g.subText = canvas.NewText(txt, color.RGBA{R: 255, G: 240, B: 80, A: 255})
 	g.subText.TextSize = 18
 	g.subText.Alignment = fyne.TextAlignCenter
+
+	// Build the overlay layer: cloud circles + ground bar.
+	cloudCol := color.NRGBA{R: 245, G: 250, B: 255, A: 220}
+	var objs []fyne.CanvasObject
+	for i := range numClouds {
+		for j := range puffsPerCloud {
+			c := canvas.NewCircle(cloudCol)
+			g.cloudCircles[i*puffsPerCloud+j] = c
+			objs = append(objs, c)
+		}
+	}
+	g.groundBar = canvas.NewRectangle(color.RGBA{R: 145, G: 133, B: 118, A: 255})
+	objs = append(objs, g.groundBar)
+	g.overlay = container.NewWithoutLayout(objs...)
 
 	return g
 }
@@ -474,20 +493,124 @@ func (t *tapWidget) TouchDown(*mobile.TouchEvent) {
 func (t *tapWidget) TouchUp(*mobile.TouchEvent) {}
 func (t *tapWidget) TouchCancel(*mobile.TouchEvent) {}
 
+// ── Overlay (clouds + ground bar) ─────────────────────────────────────────────
+
+const (
+	numClouds    = 5
+	puffsPerCloud = 5
+)
+
+// cloudPuffs gives (dxFrac, dyFrac, rFrac) relative to the cloud centre.
+// Each puff circle's position = centre + offset*mainRadius.
+var cloudPuffs = [puffsPerCloud][3]float32{
+	{0, 0, 1},
+	{-2.0 / 3, 1.0 / 3, 2.0 / 3},
+	{2.0 / 3, 1.0 / 3, 2.0 / 3},
+	{-1.0 / 3, -1.0 / 5, 4.0 / 5},
+	{1.0 / 3, -1.0 / 5, 4.0 / 5},
+}
+
+type cloudSpec struct{ baseX, baseY, radius, speed float32 }
+
+// cloudDefs lists each cloud.  All clouds are positioned near the top of the
+// screen; negative baseY centres them above the safe-area edge so their lower
+// puffs emerge into the status-bar inset area.
+var cloudDefs = [numClouds]cloudSpec{
+	{60, -22, 32, 10},
+	{230, -10, 28, 8},
+	{355, -5, 20, 13},
+	{130, 18, 24, 7},
+	{375, -15, 23, 12},
+}
+
+// updateOverlay repositions all cloud circles and the ground bar based on the
+// current wall-clock time and the overlay's actual laid-out size.  It is safe
+// to call from the game-loop goroutine; Fyne reads positions only during the
+// subsequent canvas.Refresh.
+func (g *Game) updateOverlay() {
+	s := g.overlay.Size()
+	if s.Width == 0 {
+		return // not yet laid out
+	}
+	scaleX := s.Width / gameW
+	scaleY := s.Height / gameH
+	scale := min(scaleX, scaleY) // uniform radius scale keeps circles round
+
+	// Use float64 for time: float32 only has ~7 significant digits and
+	// UnixMilli() is ~1.7e12, so float32(UnixMilli)*0.001 loses sub-second
+	// precision, making clouds appear stationary.
+	tSec := float64(time.Now().UnixMilli()) * 0.001
+	// cloudMargin is the off-screen buffer on each side.  A cloud wraps from
+	// cx = −cloudMargin (fully off left) to cx = gameW+cloudMargin (fully off
+	// right), so it always enters and exits while invisible.
+	const cloudMargin = 150
+	const span = float64(gameW + 2*cloudMargin)
+
+	// On desktop the status-bar inset is absent, so nudge clouds down slightly
+	// so they sit in a more natural position.
+	var cloudYOffset float32
+	if !fyne.CurrentDevice().IsMobile() {
+		cloudYOffset = gameH * 0.08
+	}
+
+	for i, spec := range cloudDefs {
+		elapsed := float32(math.Mod(tSec*float64(spec.speed), span))
+		cx := spec.baseX - elapsed
+		if cx < -cloudMargin {
+			cx += float32(span)
+		}
+		for j, puff := range cloudPuffs {
+			pr := spec.radius * puff[2] * scale
+			px := cx + spec.radius*puff[0]
+			py := spec.baseY + spec.radius*puff[1] + cloudYOffset
+			idx := i*puffsPerCloud + j
+			g.cloudCircles[idx].Move(fyne.NewPos(px*scaleX-pr, py*scaleY-pr))
+			g.cloudCircles[idx].Resize(fyne.NewSize(pr*2, pr*2))
+		}
+	}
+
+	// Ground bar: starts at gndY and extends well past the safe-area bottom so
+	// it fills the navigation-bar / home-indicator inset space.
+	gndPt := (gameH - 1) * scaleY
+	g.groundBar.Move(fyne.NewPos(0, gndPt))
+	g.groundBar.Resize(fyne.NewSize(s.Width, groundH))
+}
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+
+// groundTheme wraps the default theme but sets the window background to the
+// average ground colour. On mobile, the area below the safe zone (home
+// indicator bar) inherits this colour, so the ground appears to extend all the
+// way to the physical bottom of the screen.
+type groundTheme struct{ fyne.Theme }
+
+func (t groundTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
+	if n == theme.ColorNameBackground {
+		// Match the very top of the sky gradient so the status-bar inset blends
+		// seamlessly with the sky. The ground at the bottom of the screen is
+		// handled by the raster itself extending to the bottom of the safe area;
+		// on devices with gesture/transparent navigation this is sufficient.
+		return color.RGBA{R: 185, G: 225, B: 250, A: 255}
+	}
+	return t.Theme.Color(n, v)
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 func main() {
 	initAudio()
 
 	a := app.NewWithID("xyz.andy.flappy-gopher")
+	a.Settings().SetTheme(groundTheme{theme.DefaultTheme()})
 	w := a.NewWindow("Flappy Gopher")
 	w.SetPadded(false)
 
 	g := NewGame(a.Preferences())
 
-	// Layer stack: raster → tap catcher → score (top border) → messages (center).
+	// Layer stack: raster → overlay (clouds + ground bar) → tap catcher → UI text.
 	content := container.NewStack(
 		g.raster,
+		g.overlay,
 		newTapWidget(g.flap),
 		container.NewBorder(container.NewCenter(g.scoreText), nil, nil, nil),
 		container.NewCenter(container.NewVBox(g.msgText, g.subText)),
@@ -546,7 +669,9 @@ func main() {
 				g.scoreText.Hide()
 			}
 
+			g.updateOverlay()
 			canvas.Refresh(g.raster)
+			canvas.Refresh(g.overlay)
 			canvas.Refresh(g.scoreText)
 			canvas.Refresh(g.msgText)
 			canvas.Refresh(g.subText)
