@@ -114,9 +114,11 @@ func (g *Game) flap() {
 		g.state = StatePlaying
 		g.birdVY = flapForce
 		g.flapTimer = 20
+		go playJingle()
 	case StatePlaying:
 		g.birdVY = flapForce
 		g.flapTimer = 20
+		go playFlap()
 	case StateOver:
 		if g.score > g.hiScore {
 			g.hiScore = g.score
@@ -129,6 +131,7 @@ func (g *Game) flap() {
 		g.frame = 0
 		g.flapTimer = 20
 		g.state = StatePlaying
+		go playJingle()
 	}
 }
 
@@ -172,12 +175,14 @@ func (g *Game) update() {
 	// Ground / ceiling collision.
 	if g.birdY-birdRadius <= 0 || g.birdY+birdRadius >= gameH-groundH {
 		g.state = StateOver
+		go playSplat()
 		return
 	}
 	// Pipe collision.
 	for _, p := range g.pipes {
 		if pipeCollides(g.birdY, p) {
 			g.state = StateOver
+			go playSplat()
 			return
 		}
 	}
@@ -466,6 +471,8 @@ func (t *tapWidget) TouchCancel(*mobile.TouchEvent) {}
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 func main() {
+	initAudio()
+
 	a := app.NewWithID("xyz.andy.flappy-gopher")
 	w := a.NewWindow("Flappy Gopher")
 	w.SetPadded(false)
