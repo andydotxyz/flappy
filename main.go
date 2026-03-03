@@ -66,6 +66,7 @@ type Game struct {
 	hiScore   int
 	frame     int
 	flapTimer int
+	deathTime time.Time
 	prefs     fyne.Preferences
 
 	raster    *canvas.Raster
@@ -120,6 +121,9 @@ func (g *Game) flap() {
 		g.flapTimer = 20
 		go playFlap()
 	case StateOver:
+		if time.Since(g.deathTime) < 100*time.Millisecond {
+			return
+		}
 		if g.score > g.hiScore {
 			g.hiScore = g.score
 			g.prefs.SetInt("hiScore", g.hiScore)
@@ -175,6 +179,7 @@ func (g *Game) update() {
 	// Ground / ceiling collision.
 	if g.birdY-birdRadius <= 0 || g.birdY+birdRadius >= gameH-groundH {
 		g.state = StateOver
+		g.deathTime = time.Now()
 		go playSplat()
 		return
 	}
@@ -182,6 +187,7 @@ func (g *Game) update() {
 	for _, p := range g.pipes {
 		if pipeCollides(g.birdY, p) {
 			g.state = StateOver
+			g.deathTime = time.Now()
 			go playSplat()
 			return
 		}
