@@ -609,18 +609,26 @@ func main() {
 	initAudio()
 
 	a := app.NewWithID("xyz.andy.flappy-gopher")
-	a.Settings().SetTheme(groundTheme{theme.DefaultTheme()})
+	th := groundTheme{theme.DefaultTheme()}
+	a.Settings().SetTheme(th)
 	w := a.NewWindow("Flappy Gopher")
 	w.SetPadded(false)
 
 	g := NewGame(a.Preferences())
+
+	scoreBG := canvas.NewRectangle(th.Color(theme.ColorNameBackground, theme.VariantLight))
+	scoreBG.CornerRadius = 4
+	scoreBG.StrokeWidth = 2
+	scoreBG.StrokeColor = color.RGBA{R: 145, G: 133, B: 118, A: 255}
+	textBox := container.NewStack(scoreBG, container.NewPadded(g.scoreText))
+	textBox.Hide()
 
 	// Layer stack: raster → overlay (clouds + ground bar) → tap catcher → UI text.
 	content := container.NewStack(
 		g.raster,
 		g.overlay,
 		newTapWidget(g.flap),
-		container.NewBorder(container.NewCenter(g.scoreText), nil, nil, nil),
+		container.NewBorder(container.New(layout.NewCustomPaddedLayout(10, 0, 0, 0), container.NewCenter(textBox)), nil, nil, nil),
 		container.NewCenter(container.NewVBox(g.msgText, g.subText)),
 	)
 
@@ -659,10 +667,9 @@ func main() {
 	
 				g.msgText.Show()
 				g.subText.Show()
-				g.scoreText.Hide()
 			case StatePlaying:
 				g.scoreText.Text = fmt.Sprintf("%d", score)
-				g.scoreText.Show()
+				textBox.Show()
 				g.msgText.Hide()
 				g.subText.Hide()
 			case StateOver:
@@ -674,7 +681,6 @@ func main() {
 				g.subText.Text = fmt.Sprintf("%sScore: %d – tap to retry", prefix, score)
 				g.msgText.Show()
 				g.subText.Show()
-				g.scoreText.Hide()
 			}
 
 			g.updateOverlay()
