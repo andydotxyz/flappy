@@ -116,7 +116,7 @@ func playJingle() {
 		noteBuf(392.00, 0.04, 0.30), gap, // G4 – staccato
 		noteBuf(523.25, 0.04, 0.30), gap, // C5 – staccato
 		noteBuf(783.99, 0.04, 0.30), gap, // G5 – staccato
-		boingBuf(1046.5, 0.12, 0.36),     // C6 – springs in from sharp
+		boingBuf(1046.5, 0.12, 0.36), // C6 – springs in from sharp
 	))
 }
 

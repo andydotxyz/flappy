@@ -12,9 +12,10 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/driver/mobile"
-	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -281,7 +282,7 @@ func (g *Game) drawFrame(w, h int) image.Image {
 }
 
 func lerp(a, b uint8, t float64) float64 { return float64(a)*(1-t) + float64(b)*t }
-func clamp8(v float64) uint8              { return uint8(v) }
+func clamp8(v float64) uint8             { return uint8(v) }
 
 // groundHash returns a deterministic value in [-32, 31] for a given (x, y).
 func groundHash(x, y int) int {
@@ -347,7 +348,7 @@ func drawPipe(img *image.NRGBA, p Pipe, sx, sy float64, gndY, W, H int) {
 	// Shine – a narrow bright strip near the left of each section to fake a
 	// cylindrical highlight. Two strips: a bright leading edge then a softer mid.
 	sw := max(int(3*sx), 2)
-	shx := x1 + max(int(3*sx), 2)  // just inside the left dark edge
+	shx := x1 + max(int(3*sx), 2) // just inside the left dark edge
 	shcx := cx1 + max(int(3*sx), 2)
 	hi1 := color.NRGBA{R: 165, G: 235, B: 135, A: 255}
 	hi2 := color.NRGBA{R: 120, G: 215, B: 100, A: 255}
@@ -383,11 +384,11 @@ func drawRect(img *image.NRGBA, x1, y1, x2, y2 int, fill, edge color.NRGBA, W, H
 }
 
 func drawBird(img *image.NRGBA, cx, cy, r int, _ float64, flapTimer int, W, H int) {
-	body  := color.NRGBA{R: 99,  G: 136, B: 168, A: 255} // classic Go gopher blue-grey
+	body := color.NRGBA{R: 99, G: 136, B: 168, A: 255}    // classic Go gopher blue-grey
 	snoutC := color.NRGBA{R: 185, G: 210, B: 220, A: 255} // lighter snout
-	pawC  := color.NRGBA{R: 72,  G: 105, B: 132, A: 255} // slightly darker for paws
+	pawC := color.NRGBA{R: 72, G: 105, B: 132, A: 255}    // slightly darker for paws
 	white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-	dark  := color.NRGBA{R: 15,  G: 15,  B: 15,  A: 255}
+	dark := color.NRGBA{R: 15, G: 15, B: 15, A: 255}
 
 	flapping := flapTimer > 0
 
@@ -409,7 +410,6 @@ func drawBird(img *image.NRGBA, cx, cy, r int, _ float64, flapTimer int, W, H in
 		bpy = cy - r*3/5
 	}
 	drawPaw(img, bpx, bpy, r/3, pawC, flapping, W, H)
-
 
 	// Snout (right-forward).
 	snoutX := cx + r*3/5
@@ -498,13 +498,13 @@ func (t *tapWidget) TouchDown(*mobile.TouchEvent) {
 	}
 }
 
-func (t *tapWidget) TouchUp(*mobile.TouchEvent) {}
+func (t *tapWidget) TouchUp(*mobile.TouchEvent)     {}
 func (t *tapWidget) TouchCancel(*mobile.TouchEvent) {}
 
 // ── Overlay (clouds + ground bar) ─────────────────────────────────────────────
 
 const (
-	numClouds    = 5
+	numClouds     = 5
 	puffsPerCloud = 5
 )
 
@@ -659,12 +659,12 @@ func main() {
 			switch state {
 			case StateStart:
 				g.msgText.Text = "FLAPPY GOPHER"
-	if fyne.CurrentDevice().IsMobile() {
-		g.subText.Text = "tap to play"
-	} else {
-		g.subText.Text = "hit space/enter to play"
-	}
-	
+				if fyne.CurrentDevice().IsMobile() {
+					g.subText.Text = "tap to play"
+				} else {
+					g.subText.Text = "hit space/enter to play"
+				}
+
 				g.msgText.Show()
 				g.subText.Show()
 			case StatePlaying:
