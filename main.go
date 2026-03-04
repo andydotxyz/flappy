@@ -484,6 +484,14 @@ func (t *tapWidget) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(canvas.NewRectangle(color.Transparent))
 }
 
+func (t *tapWidget) MouseDown(*desktop.MouseEvent) {
+	if t.onTap != nil {
+		t.onTap()
+	}
+}
+
+func (t *tapWidget) MouseUp(*desktop.MouseEvent) {}
+
 func (t *tapWidget) TouchDown(*mobile.TouchEvent) {
 	if t.onTap != nil {
 		t.onTap()
