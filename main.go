@@ -16,7 +16,6 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/driver/mobile"
 	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -75,9 +74,6 @@ type Game struct {
 	scoreText *canvas.Text
 	msgText   *canvas.Text
 	subText   *canvas.Text
-
-	groundBar *canvas.Rectangle
-	overlay   *fyne.Container
 }
 
 func NewGame(prefs fyne.Preferences) *Game {
@@ -107,11 +103,6 @@ func NewGame(prefs fyne.Preferences) *Game {
 	g.subText = canvas.NewText(txt, color.RGBA{R: 255, G: 240, B: 80, A: 255})
 	g.subText.TextSize = 18
 	g.subText.Alignment = fyne.TextAlignCenter
-
-	// Build the overlay layer: ground bar only (clouds are drawn in the raster).
-	g.groundBar = canvas.NewRectangle(color.RGBA{R: 145, G: 133, B: 118, A: 255})
-	g.overlay = container.NewWithoutLayout(g.groundBar)
-
 	return g
 }
 
@@ -322,11 +313,7 @@ func drawClouds(img *image.NRGBA, w, h int, sx, sy float64) {
 	tSec := float64(time.Now().UnixMilli()) * 0.001
 	const cloudMargin = 150
 	const span = float64(gameW + 2*cloudMargin)
-
-	var cloudYOffset float64
-	if !fyne.CurrentDevice().IsMobile() {
-		cloudYOffset = gameH * 0.08
-	}
+	cloudYOffset := gameH * 0.08
 
 	for _, spec := range cloudDefs {
 		elapsed := float64(math.Mod(tSec*float64(spec.speed), span))
@@ -568,55 +555,16 @@ var cloudDefs = [numClouds]cloudSpec{
 	{375, -15, 23, 12},
 }
 
-// updateOverlay repositions the ground bar based on the overlay's actual
-// laid-out size.
-func (g *Game) updateOverlay() {
-	s := g.overlay.Size()
-	if s.Width == 0 {
-		return // not yet laid out
-	}
-	scaleY := s.Height / gameH
-
-	// Ground bar: starts at gndY and extends well past the safe-area bottom so
-	// it fills the navigation-bar / home-indicator inset space.
-	gndPt := (gameH - 1) * scaleY
-	g.groundBar.Move(fyne.NewPos(0, gndPt))
-	g.groundBar.Resize(fyne.NewSize(s.Width, groundH))
-}
-
-// ── Theme ─────────────────────────────────────────────────────────────────────
-
-// groundTheme wraps the default theme but sets the window background to the
-// average ground colour. On mobile, the area below the safe zone (home
-// indicator bar) inherits this colour, so the ground appears to extend all the
-// way to the physical bottom of the screen.
-type groundTheme struct{ fyne.Theme }
-
-func (t groundTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
-	if n == theme.ColorNameBackground {
-		// Match the very top of the sky gradient so the status-bar inset blends
-		// seamlessly with the sky. The ground at the bottom of the screen is
-		// handled by the raster itself extending to the bottom of the safe area;
-		// on devices with gesture/transparent navigation this is sufficient.
-		return color.RGBA{R: 185, G: 225, B: 250, A: 255}
-	}
-	return t.Theme.Color(n, v)
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
-
 func main() {
 	initAudio()
 
 	a := app.NewWithID("xyz.andy.flappy-gopher")
-	th := groundTheme{theme.DefaultTheme()}
-	a.Settings().SetTheme(th)
 	w := a.NewWindow("Flappy Gopher")
 	w.SetPadded(false)
 
 	g := NewGame(a.Preferences())
 
-	scoreBG := canvas.NewRectangle(th.Color(theme.ColorNameBackground, theme.VariantLight))
+	scoreBG := canvas.NewRectangle(color.RGBA{R: 185, G: 225, B: 250, A: 255})
 	scoreBG.CornerRadius = 4
 	scoreBG.StrokeWidth = 2
 	scoreBG.StrokeColor = color.RGBA{R: 145, G: 133, B: 118, A: 255}
@@ -625,8 +573,7 @@ func main() {
 
 	// Layer stack: raster → overlay (clouds + ground bar) → tap catcher → UI text.
 	content := container.NewStack(
-		g.raster,
-		g.overlay,
+		container.New(outOfSafeLayout(w), g.raster),
 		newTapWidget(g.flap),
 		container.NewBorder(container.New(layout.NewCustomPaddedLayout(10, 0, 0, 0), container.NewCenter(textBox)), nil, nil, nil),
 		container.NewCenter(container.NewVBox(g.msgText, g.subText)),
@@ -701,8 +648,6 @@ func main() {
 				}
 			}
 
-			// Update ground bar position (only needed until laid out + on resize).
-			g.updateOverlay()
 			canvas.Refresh(g.raster)
 		}
 	}()
