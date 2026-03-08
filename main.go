@@ -76,9 +76,8 @@ type Game struct {
 	msgText   *canvas.Text
 	subText   *canvas.Text
 
-	cloudCircles [numClouds * puffsPerCloud]*canvas.Circle
-	groundBar    *canvas.Rectangle
-	overlay      *fyne.Container
+	groundBar *canvas.Rectangle
+	overlay   *fyne.Container
 }
 
 func NewGame(prefs fyne.Preferences) *Game {
@@ -109,19 +108,9 @@ func NewGame(prefs fyne.Preferences) *Game {
 	g.subText.TextSize = 18
 	g.subText.Alignment = fyne.TextAlignCenter
 
-	// Build the overlay layer: cloud circles + ground bar.
-	cloudCol := color.NRGBA{R: 245, G: 250, B: 255, A: 220}
-	var objs []fyne.CanvasObject
-	for i := range numClouds {
-		for j := range puffsPerCloud {
-			c := canvas.NewCircle(cloudCol)
-			g.cloudCircles[i*puffsPerCloud+j] = c
-			objs = append(objs, c)
-		}
-	}
+	// Build the overlay layer: ground bar only (clouds are drawn in the raster).
 	g.groundBar = canvas.NewRectangle(color.RGBA{R: 145, G: 133, B: 118, A: 255})
-	objs = append(objs, g.groundBar)
-	g.overlay = container.NewWithoutLayout(objs...)
+	g.overlay = container.NewWithoutLayout(g.groundBar)
 
 	return g
 }
@@ -256,6 +245,9 @@ func (g *Game) drawFrame(w, h int) image.Image {
 		}
 	}
 
+	// Clouds (drawn into the sky before ground/pipes).
+	drawClouds(img, w, h, sx, sy)
+
 	// Ground (rocky texture).
 	drawGround(img, gndY, w, h)
 
@@ -322,6 +314,51 @@ func drawGround(img *image.NRGBA, gndY, w, h int) {
 			img.Pix[off+x*4+1] = gv
 			img.Pix[off+x*4+2] = bv
 			img.Pix[off+x*4+3] = 255
+		}
+	}
+}
+
+func drawClouds(img *image.NRGBA, w, h int, sx, sy float64) {
+	tSec := float64(time.Now().UnixMilli()) * 0.001
+	const cloudMargin = 150
+	const span = float64(gameW + 2*cloudMargin)
+
+	var cloudYOffset float64
+	if !fyne.CurrentDevice().IsMobile() {
+		cloudYOffset = gameH * 0.08
+	}
+
+	for _, spec := range cloudDefs {
+		elapsed := float64(math.Mod(tSec*float64(spec.speed), span))
+		cx := float64(spec.baseX) - elapsed
+		if cx < -cloudMargin {
+			cx += span
+		}
+		for _, puff := range cloudPuffs {
+			pr := int(float64(spec.radius) * float64(puff[2]) * math.Min(sx, sy))
+			px := int((cx + float64(spec.radius)*float64(puff[0])) * sx)
+			py := int((float64(spec.baseY) + float64(spec.radius)*float64(puff[1]) + cloudYOffset) * sy)
+			drawCircleAlpha(img, px, py, pr, 245, 250, 255, 220, w, h)
+		}
+	}
+}
+
+// drawCircleAlpha draws a filled circle with alpha blending onto the image.
+func drawCircleAlpha(img *image.NRGBA, cx, cy, r int, cr, cg, cb, ca uint8, W, H int) {
+	r2 := r * r
+	a := int(ca)
+	inv := 255 - a
+	for y := max(cy-r, 0); y <= min(cy+r, H-1); y++ {
+		off := y * img.Stride
+		for x := max(cx-r, 0); x <= min(cx+r, W-1); x++ {
+			dx, dy := x-cx, y-cy
+			if dx*dx+dy*dy <= r2 {
+				i := off + x*4
+				img.Pix[i] = uint8((a*int(cr) + inv*int(img.Pix[i])) / 255)
+				img.Pix[i+1] = uint8((a*int(cg) + inv*int(img.Pix[i+1])) / 255)
+				img.Pix[i+2] = uint8((a*int(cb) + inv*int(img.Pix[i+2])) / 255)
+				img.Pix[i+3] = 255
+			}
 		}
 	}
 }
@@ -531,51 +568,14 @@ var cloudDefs = [numClouds]cloudSpec{
 	{375, -15, 23, 12},
 }
 
-// updateOverlay repositions all cloud circles and the ground bar based on the
-// current wall-clock time and the overlay's actual laid-out size.  It is safe
-// to call from the game-loop goroutine; Fyne reads positions only during the
-// subsequent canvas.Refresh.
+// updateOverlay repositions the ground bar based on the overlay's actual
+// laid-out size.
 func (g *Game) updateOverlay() {
 	s := g.overlay.Size()
 	if s.Width == 0 {
 		return // not yet laid out
 	}
-	scaleX := s.Width / gameW
 	scaleY := s.Height / gameH
-	scale := min(scaleX, scaleY) // uniform radius scale keeps circles round
-
-	// Use float64 for time: float32 only has ~7 significant digits and
-	// UnixMilli() is ~1.7e12, so float32(UnixMilli)*0.001 loses sub-second
-	// precision, making clouds appear stationary.
-	tSec := float64(time.Now().UnixMilli()) * 0.001
-	// cloudMargin is the off-screen buffer on each side.  A cloud wraps from
-	// cx = −cloudMargin (fully off left) to cx = gameW+cloudMargin (fully off
-	// right), so it always enters and exits while invisible.
-	const cloudMargin = 150
-	const span = float64(gameW + 2*cloudMargin)
-
-	// On desktop the status-bar inset is absent, so nudge clouds down slightly
-	// so they sit in a more natural position.
-	var cloudYOffset float32
-	if !fyne.CurrentDevice().IsMobile() {
-		cloudYOffset = gameH * 0.08
-	}
-
-	for i, spec := range cloudDefs {
-		elapsed := float32(math.Mod(tSec*float64(spec.speed), span))
-		cx := spec.baseX - elapsed
-		if cx < -cloudMargin {
-			cx += float32(span)
-		}
-		for j, puff := range cloudPuffs {
-			pr := spec.radius * puff[2] * scale
-			px := cx + spec.radius*puff[0]
-			py := spec.baseY + spec.radius*puff[1] + cloudYOffset
-			idx := i*puffsPerCloud + j
-			g.cloudCircles[idx].Move(fyne.NewPos(px*scaleX-pr, py*scaleY-pr))
-			g.cloudCircles[idx].Resize(fyne.NewSize(pr*2, pr*2))
-		}
-	}
 
 	// Ground bar: starts at gndY and extends well past the safe-area bottom so
 	// it fills the navigation-bar / home-indicator inset space.
@@ -649,6 +649,8 @@ func main() {
 	go func() {
 		tick := time.NewTicker(time.Second / 60)
 		defer tick.Stop()
+		prevState := State(-1)
+		prevScore := -1
 		for range tick.C {
 			g.update()
 
@@ -656,39 +658,52 @@ func main() {
 			state, score, hi := g.state, g.score, g.hiScore
 			g.mu.Unlock()
 
+			stateChanged := state != prevState
+			prevState = state
+
 			switch state {
 			case StateStart:
-				g.msgText.Text = "FLAPPY GOPHER"
-				if fyne.CurrentDevice().IsMobile() {
-					g.subText.Text = "tap to play"
-				} else {
-					g.subText.Text = "hit space/enter to play"
+				if stateChanged {
+					g.msgText.Text = "FLAPPY GOPHER"
+					if fyne.CurrentDevice().IsMobile() {
+						g.subText.Text = "tap to play"
+					} else {
+						g.subText.Text = "hit space/enter to play"
+					}
+					g.msgText.Show()
+					g.subText.Show()
+					canvas.Refresh(g.msgText)
+					canvas.Refresh(g.subText)
 				}
-
-				g.msgText.Show()
-				g.subText.Show()
 			case StatePlaying:
-				g.scoreText.Text = fmt.Sprintf("%d", score)
-				textBox.Show()
-				g.msgText.Hide()
-				g.subText.Hide()
-			case StateOver:
-				g.msgText.Text = "GAME OVER"
-				prefix := ""
-				if hi > 0 {
-					prefix = fmt.Sprintf("Best: %d  •  ", hi)
+				if stateChanged {
+					textBox.Show()
+					g.msgText.Hide()
+					g.subText.Hide()
 				}
-				g.subText.Text = fmt.Sprintf("%sScore: %d – tap to retry", prefix, score)
-				g.msgText.Show()
-				g.subText.Show()
+				if score != prevScore {
+					prevScore = score
+					g.scoreText.Text = fmt.Sprintf("%d", score)
+					canvas.Refresh(g.scoreText)
+				}
+			case StateOver:
+				if stateChanged {
+					g.msgText.Text = "GAME OVER"
+					prefix := ""
+					if hi > 0 {
+						prefix = fmt.Sprintf("Best: %d  •  ", hi)
+					}
+					g.subText.Text = fmt.Sprintf("%sScore: %d – tap to retry", prefix, score)
+					g.msgText.Show()
+					g.subText.Show()
+					canvas.Refresh(g.msgText)
+					canvas.Refresh(g.subText)
+				}
 			}
 
+			// Update ground bar position (only needed until laid out + on resize).
 			g.updateOverlay()
 			canvas.Refresh(g.raster)
-			canvas.Refresh(g.overlay)
-			canvas.Refresh(g.scoreText)
-			canvas.Refresh(g.msgText)
-			canvas.Refresh(g.subText)
 		}
 	}()
 
