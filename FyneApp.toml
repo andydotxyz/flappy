@@ -2,7 +2,10 @@
 Name = "Flappy Gopher"
 ID = "xyz.andy.flappy"
 Version = "0.0.0"
-Build = 4
+Build = 19
+
+[AdaptiveIcon]
+Foreground = "Icon.png"
 
 [Migrations]
 fyneDo = true
