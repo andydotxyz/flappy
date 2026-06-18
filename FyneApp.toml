@@ -9,3 +9,6 @@ Foreground = "Icon.png"
 
 [Migrations]
 fyneDo = true
+
+[LinuxAndBSD]
+Categories = ["Game"]
